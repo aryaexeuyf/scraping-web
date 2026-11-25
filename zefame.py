@@ -8,37 +8,22 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
+# --- AMBIL URL DARI GITHUB ACTIONS (Dikirim via Cloudflare Worker) ---
+LINK_TIKTOK = os.environ.get("TIKTOK_LINK", "https://www.tiktok.com/@username_kamu")
+
 # --- INIT FIREBASE ---
 firebase_key_json = os.environ.get("FIREBASE_KEY")
-if not firebase_key_json:
-    print("[!] FIREBASE_KEY tidak ada.")
-    exit(1)
+if firebase_key_json:
+    cred_dict = json.loads(firebase_key_json)
+    cred = credentials.Certificate(cred_dict)
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+else:
+    print("[!] FIREBASE_KEY tidak ditemukan.")
+    db = None
 
-cred_dict = json.loads(firebase_key_json)
-cred = credentials.Certificate(cred_dict)
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-def proses_antrean():
-    print("[*] Mengecek antrean request di Firebase...")
-    docs = db.collection("scrape_requests").where("status", "==", "pending").limit(1).stream()
-    
-    request_data = None
-    doc_id = None
-    for doc in docs:
-        request_data = doc.to_dict()
-        doc_id = doc.id
-        break
-
-    if not request_data:
-        print("[*] Tidak ada antrean. Selesai.")
-        return
-
-    LINK_TIKTOK = request_data["tiktok_id"]
-    print(f"[*] Memproses: {LINK_TIKTOK}")
-    
-    db.collection("scrape_requests").document(doc_id).update({"status": "processing"})
-
+def main():
+    print(f"[*] Membuka Zefame untuk: {LINK_TIKTOK}")
     status_akhir = "Gagal"
     pesan_error = ""
     ss_base64 = ""
@@ -54,6 +39,7 @@ def proses_antrean():
             page.goto("https://zefame.com/id/free-tiktok-followers", timeout=60000, wait_until="domcontentloaded")
             time.sleep(3)
 
+            # Cek Limit IP / Error
             if page.locator("text=Harap tunggu").count() > 0:
                 pesan_error = "IP Server kena limit (Harap tunggu)."
                 raise Exception(pesan_error)
@@ -61,11 +47,17 @@ def proses_antrean():
                 pesan_error = "Situs Zefame sedang error/maintenance."
                 raise Exception(pesan_error)
 
+            # Isi Form
             input_selector = 'input[placeholder*="TikTok"]'
+            print("[*] Mengisi link TikTok...")
             page.fill(input_selector, LINK_TIKTOK)
             time.sleep(1)
             
+            # Klik Tombol
+            print("[*] Mengklik tombol 'Dapatkan'...")
             page.click('button:has-text("Dapatkan")')
+            
+            # Tunggu Timer 60 Detik
             print("[*] Menunggu proses (60 detik)...")
             for i in range(12): 
                 time.sleep(5)
@@ -80,24 +72,23 @@ def proses_antrean():
         finally:
             print("[*] Mengambil screenshot (termasuk jika gagal)...")
             try:
-                # Ambil SS apapun yang terjadi (gagal/sukses)
                 ss_bytes = page.screenshot(full_page=True)
                 ss_base64 = base64.b64encode(ss_bytes).decode('utf-8')
             except Exception as ss_error:
-                print(f"[!] Gagal total ambil screenshot: {ss_error}")
+                print(f"[!] Gagal screenshot: {ss_error}")
             
-            # Kirim ke Firebase (selalu, mau gagal atau berhasil)
-            print("[*] Mengirim hasil & screenshot ke Firebase...")
-            db.collection("scrape_results").add({
-                "tiktok_id": LINK_TIKTOK,
-                "status": status_akhir,
-                "pesan": pesan_error,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "image_base64": ss_base64  # <-- INI GAMBARNYA
-            })
+            # Kirim ke Firebase
+            if db:
+                print("[*] Mengirim hasil & screenshot ke Firebase...")
+                db.collection("scrape_results").add({
+                    "tiktok_id": LINK_TIKTOK,
+                    "status": status_akhir,
+                    "pesan": pesan_error,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "image_base64": ss_base64
+                })
             
-            db.collection("scrape_requests").document(doc_id).update({"status": "done"})
             browser.close()
 
 if __name__ == "__main__":
-    proses_antrean()
+    main()
