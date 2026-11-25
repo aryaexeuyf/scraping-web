@@ -2,7 +2,7 @@ from playwright.sync_api import sync_playwright
 import time
 
 URL_ZEFAME = "https://zefame.com/id/free-tiktok-followers"
-LINK_TIKTOK = "https://www.tiktok.com/@username_kamu" # GANTI DENGAN LINK KAMU
+LINK_TIKTOK = "https://www.tiktok.com/@rc_project_dj" # GANTI DENGAN LINK KAMU
 
 def main():
     print(f"[*] Membuka: {URL_ZEFAME}")
