@@ -1,68 +1,105 @@
 from playwright.sync_api import sync_playwright
 import time
 import traceback
+import base64
+import json
+import os
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime, timezone
 
-URL_ZEFAME = "https://zefame.com/id/free-tiktok-followers"
-# GANTI DENGAN LINK TIKTOK KAMU (contoh: https://www.tiktok.com/@username)
-LINK_TIKTOK = "https://www.tiktok.com/@rc_project_dj" 
+# --- AMBIL URL DARI GITHUB ACTIONS ---
+# Kalau dijalankan manual tanpa input, dia pakai link default ini:
+LINK_TIKTOK = os.environ.get("TIKTOK_LINK", "https://www.tiktok.com/@username_kamu")
+
+# --- INIT FIREBASE ---
+firebase_key_json = os.environ.get("FIREBASE_KEY")
+if firebase_key_json:
+    try:
+        cred_dict = json.loads(firebase_key_json)
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        print("[*] Firebase berhasil terhubung.")
+    except Exception as e:
+        print(f"[!] Gagal inisialisasi Firebase: {e}")
+        db = None
+else:
+    print("[!] FIREBASE_KEY tidak ditemukan di environment. Pastikan sudah diset di GitHub Secrets.")
+    db = None
+
+def kirim_ke_firebase(status, gambar_base64, pesan=""):
+    if db:
+        print(f"[*] Mengirim status '{status}' ke Firebase...")
+        db.collection("scrape_results").add({
+            "tiktok_id": LINK_TIKTOK,
+            "status": status,
+            "pesan": pesan,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "image_base64": gambar_base64
+        })
+        print("[*] Berhasil dikirim ke Firebase!")
+    else:
+        print("[!] Gagal kirim ke Firebase karena DB belum siap.")
 
 def main():
-    print(f"[*] Membuka: {URL_ZEFAME}")
-    
+    print(f"[*] Membuka Zefame untuk: {LINK_TIKTOK}")
+    status_akhir = "Gagal"
+    pesan_error = ""
+    ss_base64 = ""
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        
-        # Pura-pura jadi Chrome asli
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = context.new_page()
         
         try:
-            page.goto(URL_ZEFAME, timeout=60000, wait_until="domcontentloaded")
-            print("[*] Halaman dibuka.")
-            time.sleep(3) 
+            page.goto("https://zefame.com/id/free-tiktok-followers", timeout=60000, wait_until="domcontentloaded")
+            time.sleep(3)
 
-            # Cek error spesifik dari form
-            if page.locator("text=Terjadi kesalahan. Coba lagi.").count() > 0:
-                print("[!] Peringatan: Situs Zefame menampilkan pesan error di form.")
-                raise Exception("Zefame Error Message Detected")
+            # Cek Limit IP / Error
+            if page.locator("text=Harap tunggu").count() > 0:
+                pesan_error = "IP Server kena limit (Harap tunggu)."
+                raise Exception(pesan_error)
+            if page.locator("text=Terjadi kesalahan").count() > 0:
+                pesan_error = "Situs Zefame sedang error/maintenance."
+                raise Exception(pesan_error)
 
-            # Cari kolom input
+            # Isi Form
             input_selector = 'input[placeholder*="TikTok"]'
-            if page.locator(input_selector).count() == 0:
-                input_selector = 'input[type="text"]' 
-            
-            print(f"[*] Mengisi link: {LINK_TIKTOK}")
+            print("[*] Mengisi link TikTok...")
             page.fill(input_selector, LINK_TIKTOK)
             time.sleep(1)
             
-            # Klik tombol
-            button_selector = 'button:has-text("Dapatkan")'
+            # Klik Tombol
             print("[*] Mengklik tombol 'Dapatkan'...")
-            page.click(button_selector)
+            page.click('button:has-text("Dapatkan")')
             
-            # NUNGGU TIMER 60 DETIK
-            print("[*] Menunggu proses (60 detik). Jangan tutup browser...")
-            
+            # Tunggu Timer 60 Detik
+            print("[*] Menunggu proses (60 detik)...")
             for i in range(12): 
                 time.sleep(5)
-                print(f"    -> Menunggu... ({(i+1)*5} detik)")
+                print(f"    -> Detik ke-{(i+1)*5}")
             
-            print("[*] Waktu tunggu selesai. Mengambil screenshot hasil akhir...")
-            
+            status_akhir = "Berhasil"
+            pesan_error = "Proses pengiriman followers sukses!"
+
         except Exception as e:
-            print(f"\n[!] ERROR TERJADI: {e}")
-            traceback.print_exc()
+            print(f"[!] ERROR: {e}")
+            if not pesan_error: pesan_error = str(e)
         finally:
-            # PASTIKAN SCREENSHOT DIAMBIL APAPUN YANG TERJADI
+            print("[*] Mengambil screenshot...")
             try:
-                print("[*] Mencoba mengambil screenshot...")
-                page.screenshot(path="zefame_result.png", full_page=True)
-                print("[*] Screenshot berhasil disimpan.")
+                # Simpan SS ke memory (Base64)
+                ss_bytes = page.screenshot(full_page=True)
+                ss_base64 = base64.b64encode(ss_bytes).decode('utf-8')
             except Exception as ss_error:
-                print(f"[!] Gagal mengambil screenshot: {ss_error}")
+                print(f"[!] Gagal screenshot: {ss_error}")
             
+            # Kirim ke Firebase
+            kirim_ke_firebase(status_akhir, ss_base64, pesan_error)
             browser.close()
 
 if __name__ == "__main__":
