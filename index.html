@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zefame Auto Bot</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: white; text-align: center; padding: 50px; }
+        .container { max-width: 600px; margin: auto; background: #1e293b; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        input[type="text"] { width: 80%; padding: 12px; border-radius: 5px; border: none; margin-bottom: 20px; font-size: 16px; }
+        button { padding: 12px 25px; background: #3b82f6; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #64748b; cursor: not-allowed; }
+        #status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        #countdown { font-size: 40px; color: #fbbf24; margin: 10px 0; font-family: monospace; }
+        #imgContainer { margin-top: 20px; }
+        img { max-width: 100%; border-radius: 8px; border: 2px solid #22c55e; }
+        .error { color: #ef4444; }
+        .success { color: #22c55e; }
+    </style>
+    <!-- Firebase SDK v10 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
+
+        // Firebase Config Kamu
+        const firebaseConfig = {
+            apiKey: "AIzaSyDA_hBrysLkIvXgDbOHD2_50UEd2gVWHLE",
+            authDomain: "boost-tiktok-c6c62.firebaseapp.com",
+            projectId: "boost-tiktok-c6c62",
+            storageBucket: "boost-tiktok-c6c62.firebasestorage.app",
+            messagingSenderId: "216164007929",
+            appId: "1:216164007929:web:4e09b6c11ceb8f8d55c728"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // --- KONFIGURASI GITHUB ---
+        const GITHUB_TOKEN = "GANTI_DENGAN_TOKEN_GITHUB_KAMU"; 
+        const REPO = "aryaexyuf/scraping-web"; // Username/Repo kamu
+
+        let countdownInterval = null;
+        let waktuMulai = 0;
+
+        window.prosesTikTok = async function() {
+            const link = document.getElementById('linkTiktok').value;
+            if(!link.includes("tiktok.com/")) return alert("Masukkan link TikTok yang valid!");
+
+            // UI Reset
+            document.getElementById('btnProses').disabled = true;
+            document.getElementById('status').innerText = "Mengirim perintah...";
+            document.getElementById('status').className = "";
+            document.getElementById('imgContainer').innerHTML = "";
+            
+            // 1. Tembak GitHub Actions
+            try {
+                const response = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/zefame.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${GITHUB_TOKEN}`, 
+                        'Accept': 'application/vnd.github+json' 
+                    },
+                    body: JSON.stringify({ ref: 'main', inputs: { tiktok_link: link } })
+                });
+
+                if (!response.ok) throw new Error("Gagal trigger GitHub. Cek Token.");
+                
+                document.getElementById('status').innerText = "Memproses di Server...";
+                mulaiCountdown(120); // Mulai timer 2 menit
+
+            } catch (error) {
+                document.getElementById('status').innerText = "Error: " + error.message;
+                document.getElementById('status').className = "error";
+                document.getElementById('btnProses').disabled = false;
+            }
+        }
+
+        function mulaiCountdown(detik) {
+            let sisa = detik;
+            const cdEl = document.getElementById('countdown');
+            cdEl.innerText = formatWaktu(sisa);
+            
+            if(countdownInterval) clearInterval(countdownInterval);
+            
+            countdownInterval = setInterval(() => {
+                sisa--;
+                if (sisa <= 0) {
+                    clearInterval(countdownInterval);
+                    cdEl.innerText = "00:00";
+                    // Kalau timer habis tapi firebase blm respon
+                    if(document.getElementById('status').innerText.includes("Memproses")) {
+                        document.getElementById('status').innerText = "Timeout / Gagal";
+                        document.getElementById('status').className = "error";
+                        document.getElementById('btnProses').disabled = false;
+                    }
+                } else {
+                    cdEl.innerText = formatWaktu(sisa);
+                }
+            }, 1000);
+        }
+
+        function formatWaktu(s) {
+            const m = Math.floor(s / 60).toString().padStart(2, '0');
+            const sec = (s % 60).toString().padStart(2, '0');
+            return `${m}:${sec}`;
+        }
+
+        // 2. Dengerin Hasil dari Firebase (Real-time)
+        const q = query(collection(db, "scrape_results"), orderBy("timestamp", "desc"), limit(1));
+        onSnapshot(q, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added" || change.type === "modified") {
+                    const data = change.doc.data();
+                    
+                    // Cek apakah linknya sama dengan yang barusan disubmit
+                    const linkInput = document.getElementById('linkTiktok').value;
+                    if(data.tiktok_id === linkInput) {
+                        // Hentikan Countdown
+                        if(countdownInterval) clearInterval(countdownInterval);
+                        document.getElementById('countdown').innerText = "";
+
+                        // Update UI
+                        const statusEl = document.getElementById('status');
+                        statusEl.innerText = `Status: ${data.status}`;
+                        statusEl.className = data.status === "Berhasil" ? "success" : "error";
+                        
+                        if(data.pesan) statusEl.innerText += `\n(${data.pesan})`;
+                        
+                        // Tampilkan Gambar
+                        if(data.image_base64) {
+                            document.getElementById('imgContainer').innerHTML = `
+                                <p style="color:#94a3b8; font-size:12px;">Screenshot dari Server:</p>
+                                <img src="data:image/png;base64,${data.image_base64}" alt="Hasil Scraping"/>
+                            `;
+                        }
+                        
+                        // Aktifkan tombol lagi
+                        document.getElementById('btnProses').disabled = false;
+                    }
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Zefame Bot Kontroler</h1>
+        <p>Masukkan link profil TikTok kamu (Pastikan profil publik).</p>
+        
+        <input type="text" id="linkTiktok" placeholder="https://www.tiktok.com/@username" />
+        <br>
+        <button id="btnProses" onclick="prosesTikTok()">🚀 Proses Sekarang</button>
+        
+        <div id="countdown"></div>
+        <div id="status" style="white-space: pre-wrap;">Idle</div>
+        
+        <div id="imgContainer"></div>
+    </div>
+</body>
+</html>
