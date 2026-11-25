@@ -23,7 +23,7 @@
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, query, orderBy, limit, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDA_hBrysLkIvXgDbOHD2_50UEd2gVWHLE",
@@ -37,6 +37,9 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
+        // --- URL CLOUDFLARE WORKER KAMU ---
+        const WORKER_URL = "https://lingering-disk-6387.aryaputra-official25.workers.dev";
+
         let countdownInterval = null;
         let targetLink = "";
 
@@ -46,20 +49,31 @@
 
             targetLink = link;
             document.getElementById('btnProses').disabled = true;
-            document.getElementById('status').innerText = "Mengirim perintah ke antrean...";
+            document.getElementById('status').innerText = "Mengirim perintah ke Server...";
             document.getElementById('status').className = "";
             document.getElementById('imgContainer').innerHTML = "";
             
             try {
-                await addDoc(collection(db, "scrape_requests"), {
-                    tiktok_id: link,
-                    status: "pending",
-                    timestamp: serverTimestamp()
+                // Tembak Cloudflare Worker (tanpa CORS)
+                const response = await fetch(WORKER_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        repo: "aryaexyuf/scraping-web", 
+                        workflow: "zefame.yml", 
+                        tiktok_link: link 
+                    })
                 });
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || "Gagal trigger GitHub via Worker.");
+                }
                 
-                document.getElementById('status').innerText = "Menunggu antrean diproses...";
-                // Ubah ke 900 detik (15 menit) biar cukup nunggu GitHub Cron bangun
-                mulaiCountdown(900); 
+                document.getElementById('status').innerText = "Memproses di Server...";
+                // Timer 2 menit (120 detik) karena sekarang instan
+                mulaiCountdown(120); 
 
             } catch (error) {
                 document.getElementById('status').innerText = "Error: " + error.message;
@@ -80,8 +94,8 @@
                 if (sisa <= 0) {
                     clearInterval(countdownInterval);
                     cdEl.innerText = "00:00";
-                    if(document.getElementById('status').innerText.includes("Menunggu")) {
-                        document.getElementById('status').innerText = "Timeout / Server terlalu lama bangun.";
+                    if(document.getElementById('status').innerText.includes("Memproses")) {
+                        document.getElementById('status').innerText = "Timeout / Gagal";
                         document.getElementById('status').className = "error";
                         document.getElementById('btnProses').disabled = false;
                     }
@@ -97,6 +111,7 @@
             return `${m}:${sec}`;
         }
 
+        // Dengerin Hasil dari Firebase (Real-time)
         const q = query(collection(db, "scrape_results"), orderBy("timestamp", "desc"), limit(1));
         onSnapshot(q, (snapshot) => {
             snapshot.docChanges().forEach((change) => {
