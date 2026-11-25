@@ -1,9 +1,32 @@
+name: Zefame Scraper Test
+
+on:
+  workflow_dispatch: # Tombol manual buat jalanin
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
       - name: Run Zefame Scraper
         run: python zefame.py
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
-        if: always() # INI KUNCIUTAMA BIAR TETAP UPLOAD WALAU SCRIPT GAGAL
+        if: always() # INI KUNCIUTAMA: Tetap upload walau script gagal
         with:
           name: zefame-screenshot
           path: zefame_result.png
