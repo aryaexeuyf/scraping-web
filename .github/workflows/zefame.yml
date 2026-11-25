@@ -1,9 +1,12 @@
 name: Zefame Scraper Web Control
 
 on:
-  schedule:
-    - cron: '*/5 * * * *' # Jalan tiap 5 menit
-  workflow_dispatch:      # Tetap bisa dijalanin manual
+  workflow_dispatch:
+    inputs:
+      tiktok_link:
+        description: 'Masukkan Link TikTok'
+        required: true
+        default: 'https://www.tiktok.com/@username'
 
 jobs:
   run-scraper:
@@ -21,5 +24,6 @@ jobs:
           
       - name: Run Zefame Scraper
         env:
+          TIKTOK_LINK: ${{ github.event.inputs.tiktok_link }}
           FIREBASE_KEY: ${{ secrets.FIREBASE_KEY }}
         run: python zefame.py
