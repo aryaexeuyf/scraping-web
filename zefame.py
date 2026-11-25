@@ -8,42 +8,39 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
-# --- AMBIL URL DARI GITHUB ACTIONS ---
-# Kalau dijalankan manual tanpa input, dia pakai link default ini:
-LINK_TIKTOK = os.environ.get("TIKTOK_LINK", "https://www.tiktok.com/@username_kamu")
-
 # --- INIT FIREBASE ---
 firebase_key_json = os.environ.get("FIREBASE_KEY")
-if firebase_key_json:
-    try:
-        cred_dict = json.loads(firebase_key_json)
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        print("[*] Firebase berhasil terhubung.")
-    except Exception as e:
-        print(f"[!] Gagal inisialisasi Firebase: {e}")
-        db = None
-else:
-    print("[!] FIREBASE_KEY tidak ditemukan di environment. Pastikan sudah diset di GitHub Secrets.")
-    db = None
+if not firebase_key_json:
+    print("[!] FIREBASE_KEY tidak ada.")
+    exit(1)
 
-def kirim_ke_firebase(status, gambar_base64, pesan=""):
-    if db:
-        print(f"[*] Mengirim status '{status}' ke Firebase...")
-        db.collection("scrape_results").add({
-            "tiktok_id": LINK_TIKTOK,
-            "status": status,
-            "pesan": pesan,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "image_base64": gambar_base64
-        })
-        print("[*] Berhasil dikirim ke Firebase!")
-    else:
-        print("[!] Gagal kirim ke Firebase karena DB belum siap.")
+cred_dict = json.loads(firebase_key_json)
+cred = credentials.Certificate(cred_dict)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-def main():
-    print(f"[*] Membuka Zefame untuk: {LINK_TIKTOK}")
+def proses_antrean():
+    print("[*] Mengecek antrean request di Firebase...")
+    # Cari 1 request yang statusnya 'pending'
+    docs = db.collection("scrape_requests").where("status", "==", "pending").limit(1).stream()
+    
+    request_data = None
+    doc_id = None
+    for doc in docs:
+        request_data = doc.to_dict()
+        doc_id = doc.id
+        break
+
+    if not request_data:
+        print("[*] Tidak ada antrean. Selesai.")
+        return
+
+    LINK_TIKTOK = request_data["tiktok_id"]
+    print(f"[*] Memproses: {LINK_TIKTOK}")
+    
+    # Tandai sedang diproses
+    db.collection("scrape_requests").document(doc_id).update({"status": "processing"})
+
     status_akhir = "Gagal"
     pesan_error = ""
     ss_base64 = ""
@@ -59,7 +56,6 @@ def main():
             page.goto("https://zefame.com/id/free-tiktok-followers", timeout=60000, wait_until="domcontentloaded")
             time.sleep(3)
 
-            # Cek Limit IP / Error
             if page.locator("text=Harap tunggu").count() > 0:
                 pesan_error = "IP Server kena limit (Harap tunggu)."
                 raise Exception(pesan_error)
@@ -67,17 +63,11 @@ def main():
                 pesan_error = "Situs Zefame sedang error/maintenance."
                 raise Exception(pesan_error)
 
-            # Isi Form
             input_selector = 'input[placeholder*="TikTok"]'
-            print("[*] Mengisi link TikTok...")
             page.fill(input_selector, LINK_TIKTOK)
             time.sleep(1)
             
-            # Klik Tombol
-            print("[*] Mengklik tombol 'Dapatkan'...")
             page.click('button:has-text("Dapatkan")')
-            
-            # Tunggu Timer 60 Detik
             print("[*] Menunggu proses (60 detik)...")
             for i in range(12): 
                 time.sleep(5)
@@ -92,15 +82,23 @@ def main():
         finally:
             print("[*] Mengambil screenshot...")
             try:
-                # Simpan SS ke memory (Base64)
                 ss_bytes = page.screenshot(full_page=True)
                 ss_base64 = base64.b64encode(ss_bytes).decode('utf-8')
             except Exception as ss_error:
                 print(f"[!] Gagal screenshot: {ss_error}")
             
-            # Kirim ke Firebase
-            kirim_ke_firebase(status_akhir, ss_base64, pesan_error)
+            # Kirim hasil ke scrape_results
+            db.collection("scrape_results").add({
+                "tiktok_id": LINK_TIKTOK,
+                "status": status_akhir,
+                "pesan": pesan_error,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "image_base64": ss_base64
+            })
+            
+            # Update status request jadi done
+            db.collection("scrape_requests").document(doc_id).update({"status": "done"})
             browser.close()
 
 if __name__ == "__main__":
-    main()
+    proses_antrean()
