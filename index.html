@@ -14,7 +14,10 @@
         #status { font-size: 24px; font-weight: bold; margin: 20px 0; }
         #countdown { font-size: 40px; color: #fbbf24; margin: 10px 0; font-family: monospace; }
         #imgContainer { margin-top: 20px; }
-        img { max-width: 100%; border-radius: 8px; border: 2px solid #22c55e; }
+        /* Bingkai gambar */
+        .ss-img { max-width: 100%; border-radius: 8px; border: 4px solid #ccc; }
+        .ss-success { border-color: #22c55e; }
+        .ss-error { border-color: #ef4444; }
         .error { color: #ef4444; }
         .success { color: #22c55e; }
     </style>
@@ -47,7 +50,6 @@
             document.getElementById('status').className = "";
             document.getElementById('imgContainer').innerHTML = "";
             
-            // 1. Simpan perintah ke Firebase (BUKAN nembak GitHub)
             try {
                 await addDoc(collection(db, "scrape_requests"), {
                     tiktok_id: link,
@@ -56,7 +58,8 @@
                 });
                 
                 document.getElementById('status').innerText = "Menunggu antrean diproses...";
-                mulaiCountdown(120); // Timer 2 menit
+                // Ubah ke 900 detik (15 menit) biar cukup nunggu GitHub Cron bangun
+                mulaiCountdown(900); 
 
             } catch (error) {
                 document.getElementById('status').innerText = "Error: " + error.message;
@@ -78,7 +81,7 @@
                     clearInterval(countdownInterval);
                     cdEl.innerText = "00:00";
                     if(document.getElementById('status').innerText.includes("Menunggu")) {
-                        document.getElementById('status').innerText = "Timeout / Antrean penuh.";
+                        document.getElementById('status').innerText = "Timeout / Server terlalu lama bangun.";
                         document.getElementById('status').className = "error";
                         document.getElementById('btnProses').disabled = false;
                     }
@@ -94,7 +97,6 @@
             return `${m}:${sec}`;
         }
 
-        // 2. Dengerin Hasil Akhir dari Firebase
         const q = query(collection(db, "scrape_results"), orderBy("timestamp", "desc"), limit(1));
         onSnapshot(q, (snapshot) => {
             snapshot.docChanges().forEach((change) => {
@@ -111,10 +113,12 @@
                         
                         if(data.pesan) statusEl.innerText += `\n(${data.pesan})`;
                         
+                        // TAMPILKAN GAMBAR DENGAN BINGKAI
                         if(data.image_base64) {
+                            const borderColor = data.status === "Berhasil" ? "ss-success" : "ss-error";
                             document.getElementById('imgContainer').innerHTML = `
-                                <p style="color:#94a3b8; font-size:12px;">Screenshot dari Server:</p>
-                                <img src="data:image/png;base64,${data.image_base64}" alt="Hasil Scraping"/>
+                                <p style="color:#94a3b8; font-size:12px;">Bukti Screenshot dari Server:</p>
+                                <img src="data:image/png;base64,${data.image_base64}" class="ss-img ${borderColor}" alt="Hasil Scraping"/>
                             `;
                         }
                         document.getElementById('btnProses').disabled = false;
@@ -131,7 +135,7 @@
         
         <input type="text" id="linkTiktok" placeholder="https://www.tiktok.com/@username" />
         <br>
-        <button id="btnProses" onclick="prosesTikTok()">🚀 Proses crit</button>
+        <button id="btnProses" onclick="prosesTikTok()">🚀 Proses Sekarang</button>
         
         <div id="countdown"></div>
         <div id="status" style="white-space: pre-wrap;">Idle</div>
