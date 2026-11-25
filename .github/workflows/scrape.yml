@@ -1,0 +1,22 @@
+name: Scraping BMKG
+
+on:
+  workflow_dispatch: # Ini yang bikin tombol "Run workflow" muncul
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scraper
+        run: python scrape.py
