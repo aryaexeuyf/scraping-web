@@ -1,32 +1,29 @@
-name: Zefame Scraper Test
+name: Zefame Scraper Web Control
 
 on:
-  workflow_dispatch: # Tombol manual buat jalanin
+  workflow_dispatch:
+    inputs:
+      tiktok_link:
+        description: 'Masukkan Link TikTok'
+        required: true
+        default: 'https://www.tiktok.com/@username'
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+        
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install playwright firebase-admin
           playwright install chromium
           playwright install-deps chromium
-
+          
       - name: Run Zefame Scraper
+        env:
+          TIKTOK_LINK: ${{ github.event.inputs.tiktok_link }}
+          FIREBASE_KEY: ${{ secrets.FIREBASE_KEY }}
         run: python zefame.py
-
-      - name: Upload Screenshot
-        uses: actions/upload-artifact@v4
-        if: always() # INI KUNCIUTAMA: Tetap upload walau script gagal
-        with:
-          name: zefame-screenshot
-          path: zefame_result.png
