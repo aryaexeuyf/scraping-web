@@ -21,7 +21,6 @@ db = firestore.client()
 
 def proses_antrean():
     print("[*] Mengecek antrean request di Firebase...")
-    # Cari 1 request yang statusnya 'pending'
     docs = db.collection("scrape_requests").where("status", "==", "pending").limit(1).stream()
     
     request_data = None
@@ -38,7 +37,6 @@ def proses_antrean():
     LINK_TIKTOK = request_data["tiktok_id"]
     print(f"[*] Memproses: {LINK_TIKTOK}")
     
-    # Tandai sedang diproses
     db.collection("scrape_requests").document(doc_id).update({"status": "processing"})
 
     status_akhir = "Gagal"
@@ -80,23 +78,24 @@ def proses_antrean():
             print(f"[!] ERROR: {e}")
             if not pesan_error: pesan_error = str(e)
         finally:
-            print("[*] Mengambil screenshot...")
+            print("[*] Mengambil screenshot (termasuk jika gagal)...")
             try:
+                # Ambil SS apapun yang terjadi (gagal/sukses)
                 ss_bytes = page.screenshot(full_page=True)
                 ss_base64 = base64.b64encode(ss_bytes).decode('utf-8')
             except Exception as ss_error:
-                print(f"[!] Gagal screenshot: {ss_error}")
+                print(f"[!] Gagal total ambil screenshot: {ss_error}")
             
-            # Kirim hasil ke scrape_results
+            # Kirim ke Firebase (selalu, mau gagal atau berhasil)
+            print("[*] Mengirim hasil & screenshot ke Firebase...")
             db.collection("scrape_results").add({
                 "tiktok_id": LINK_TIKTOK,
                 "status": status_akhir,
                 "pesan": pesan_error,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "image_base64": ss_base64
+                "image_base64": ss_base64  # <-- INI GAMBARNYA
             })
             
-            # Update status request jadi done
             db.collection("scrape_requests").document(doc_id).update({"status": "done"})
             browser.close()
 
